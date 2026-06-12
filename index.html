@@ -44,22 +44,22 @@
 <body>
 <canvas id="gc"></canvas>
 <div id="loader">
-  <img id="loader-img"
-    src="https://raw.githubusercontent.com/CakeBoxDeveloper/3d/main/Loop.webp"
-    alt="">
+  <video id="loader-img" autoplay muted loop playsinline
+    src="https://raw.githubusercontent.com/CakeBoxDeveloper/3d/main/LWebm.webm">
+  </video>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
 (function(){
 
 var canvas = document.getElementById('gc');
 var W = window.innerWidth, H = window.innerHeight;
+var _loaderStart = Date.now();
 
 var renderer = new THREE.WebGLRenderer({canvas:canvas, antialias:true});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(W, H);
-renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.outputEncoding = THREE.LinearEncoding;
 
 var scene  = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(75, W/H, 0.1, 1000);
@@ -84,7 +84,8 @@ var postMat = new THREE.ShaderMaterial({
     uRes:     { value: new THREE.Vector2(W * dpr, H * dpr) },
     uCA:      { value: 0.009 },
     uVigBlur: { value: 0.84  },
-    uBright:  { value: 1.8   },
+    uBright:  { value: 1.35  },
+    uMotion:  { value: new THREE.Vector2(0, 0) },
   },
   vertexShader: `
     varying vec2 vUv;
@@ -96,6 +97,7 @@ var postMat = new THREE.ShaderMaterial({
     uniform float uCA;
     uniform float uVigBlur;
     uniform float uBright;
+    uniform vec2 uMotion;
     varying vec2 vUv;
 
     vec4 blurSample(sampler2D tex, vec2 uv, float radius) {
@@ -109,40 +111,36 @@ var postMat = new THREE.ShaderMaterial({
       return col / 49.0;
     }
 
-    // Bloom: большое размытие только ярких пикселей
-    vec3 bloomSample(sampler2D tex, vec2 uv) {
-      vec3 col = vec3(0.0);
-      float total = 0.0;
-      float r = 8.0;
-      for(float x = -4.0; x <= 4.0; x += 1.0)
-        for(float y = -4.0; y <= 4.0; y += 1.0) {
-          vec2 suv = clamp(uv + vec2(x,y)*r/uRes, 0.001, 0.999);
-          vec3 s = texture2D(tex, suv).rgb;
-          float lum = dot(s, vec3(0.299, 0.587, 0.114));
-          // Берём только яркие пиксели (threshold 0.7)
-          col += s * max(0.0, lum - 0.7) * 3.0;
-          total += 1.0;
-        }
-      return col / total;
-    }
-
     void main() {
       vec2 fc   = vUv - 0.5;
       float dist = length(fc) * 1.414;
-      float ca   = uCA * dist * dist;
-      vec2 dir   = normalize(fc + 0.0001) * ca;
+
+      // Хроматическая аберрация
+      float ca  = uCA * dist * dist;
+      vec2 dir  = normalize(fc + 0.0001) * ca;
       float r = texture2D(tDiffuse, vUv + dir).r;
       float g = texture2D(tDiffuse, vUv      ).g;
       float b = texture2D(tDiffuse, vUv - dir).b;
-      vec4 sharp   = vec4(r, g, b, 1.0);
-      float blurR  = uVigBlur * dist * dist * dist * 12.0;
+      vec4 sharp = vec4(r, g, b, 1.0);
+
+      // Виньетка-блюр: сильнее по бокам (по X), слабее сверху/снизу
+      float sideBlur = abs(fc.x) * 2.0; // 0 в центре, 1 на краях по X
+      float blurR  = uVigBlur * (dist * dist * dist * 8.0 + sideBlur * sideBlur * sideBlur * 11.0);
       vec4 blurred = blurSample(tDiffuse, vUv, blurR);
       float blend  = smoothstep(0.25, 0.8, dist);
       vec4 col = mix(sharp, blurred, blend);
 
-      // Добавляем bloom поверх
-      vec3 bloom = bloomSample(tDiffuse, vUv);
-      col.rgb += bloom * 0.4;
+      // Motion blur по вектору движения камеры
+      float motLen = length(uMotion);
+      if(motLen > 0.0002) {
+        vec2 step = uMotion / 8.0;
+        vec4 mCol = col;
+        for(int i = 1; i <= 7; i++) {
+          vec2 suv = clamp(vUv + step * float(i), 0.001, 0.999);
+          mCol += texture2D(tDiffuse, suv);
+        }
+        col = mix(col, mCol / 8.0, smoothstep(0.0002, 0.012, motLen));
+      }
 
       // Яркость
       col.rgb *= uBright;
@@ -164,60 +162,17 @@ scene.add(sphere);
 new THREE.TextureLoader().load(
   'https://raw.githubusercontent.com/CakeBoxDeveloper/3d/main/room.webp',
   function(tex){
-    tex.encoding = THREE.sRGBEncoding;
+    tex.encoding = THREE.LinearEncoding;
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
     sphere.material = new THREE.MeshBasicMaterial({map:tex, side:THREE.FrontSide});
-  }
-);
-
-/* ── Стол — СКРЫТ ВРЕМЕННО ── */
-/*
-var gltfLoader = new THREE.GLTFLoader();
-gltfLoader.load(
-  'https://raw.githubusercontent.com/CakeBoxDeveloper/3d/main/Table.glb',
-  function(gltf){
-    var model = gltf.scene;
-    var box   = new THREE.Box3().setFromObject(model);
-    var size  = box.getSize(new THREE.Vector3());
-    var scale = 0.8 / Math.max(size.x, size.y, size.z);
-    model.scale.setScalar(scale * 5);
-    box.setFromObject(model);
-    model.position.set(-0.6, -box.min.y - 1.2, -0.5);
-    model.rotation.y = 0;
-    scene.add(model);
-
-    // Убираем только пересвет emissive — оставляем слабое свечение
-    model.traverse(function(node){
-      if(node.isMesh && node.material){
-        var mats = Array.isArray(node.material) ? node.material : [node.material];
-        mats.forEach(function(m){
-          if(m.emissiveIntensity > 0.3) m.emissiveIntensity = 0.3;
-          m.needsUpdate = true;
-        });
-      }
-    });
-
-    if(gltf.animations && gltf.animations.length){
-      scene._mixer = new THREE.AnimationMixer(model);
-      gltf.animations.forEach(function(c){ scene._mixer.clipAction(c).play(); });
-    }
-
-    // Скрываем лоадер
-    var el = document.getElementById('loader');
-    if(el){ el.style.opacity='0'; setTimeout(function(){ el.style.display='none'; }, 650); }
-  },
-  undefined,
-  function(err){ console.warn(err); }
-);
-*/
-
-// Скрываем лоадер сразу (без ожидания модели)
-new THREE.TextureLoader().load(
-  'https://raw.githubusercontent.com/CakeBoxDeveloper/3d/main/room.webp',
-  function(){
-    var el = document.getElementById('loader');
-    if(el){ el.style.opacity='0'; setTimeout(function(){ el.style.display='none'; }, 650); }
+    var minShow = 2000; // минимум 2 секунды
+    var elapsed = Date.now() - _loaderStart;
+    var delay = Math.max(0, minShow - elapsed);
+    setTimeout(function(){
+      var el = document.getElementById('loader');
+      if(el){ el.style.opacity='0'; setTimeout(function(){ el.style.display='none'; }, 650); }
+    }, delay);
   }
 );
 
@@ -271,12 +226,33 @@ window.addEventListener('resize',function(){
 
 /* ── Render loop ── */
 var lastTime=0;
+var qPrev = new THREE.Quaternion();
+var _qDelta = new THREE.Quaternion();
+var _axis = new THREE.Vector3();
 function animate(now){
   requestAnimationFrame(animate);
   var dt=lastTime?Math.min((now-lastTime)/1000,0.1):0; lastTime=now;
   if(scene._mixer) scene._mixer.update(dt);
+
+  qPrev.copy(qC);
   qC.slerp(qT,SLERP);
   camera.quaternion.copy(qC);
+
+  // Вектор движения: разница между текущим и предыдущим кватернионом
+  // qDelta = qC * qPrev^-1
+  _qDelta.copy(qPrev).invert().premultiply(qC);
+  var angle = 2 * Math.acos(Math.min(1, Math.abs(_qDelta.w)));
+  var motionX = 0, motionY = 0;
+  if(angle > 0.00001){
+    _axis.set(_qDelta.x, _qDelta.y, _qDelta.z).normalize();
+    // Проецируем ось вращения на экранные оси
+    // Y-вращение → горизонтальный сдвиг UV, X-вращение → вертикальный
+    var strength = Math.min(angle * 3.0, 0.03); // клампим максимум
+    motionX = -_axis.y * angle * strength * 30.0;
+    motionY =  _axis.x * angle * strength * 30.0;
+  }
+  postMat.uniforms.uMotion.value.set(motionX, motionY);
+
   renderer.setRenderTarget(rt);
   renderer.render(scene,camera);
   renderer.setRenderTarget(null);
