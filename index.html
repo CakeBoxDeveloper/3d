@@ -11,19 +11,42 @@
   #loader {
     position:fixed; top:0; left:0; width:100%; height:100%;
     z-index:999; background:#000;
-    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
     transition: opacity 0.6s;
   }
-  #loader-video { width:20vw; }
-  @media (max-width: 768px) { #loader-video { width:70vw; } }
+  /* Картинка 1920×1080 — на десктопе покрывает весь экран */
+  #loader-img {
+    position:absolute;
+    /* Центрируем */
+    top:50%; left:50%;
+    transform:translate(-50%, -50%);
+    /* Десктоп: масштабируем чтобы покрыть весь экран */
+    width:100vw;
+    height:100vh;
+    object-fit:cover;
+    object-position:center center;
+  }
+  /* Телефон: показываем только центральную треть (1/3 ширины 1920px = 640px)
+     Эффект достигается масштабированием картинки так, чтобы её высота = 100vh,
+     а потом overflow:hidden обрезает края */
+  @media (max-width: 768px) {
+    #loader-img {
+      /* Высота = 100vh, ширина пропорциональна 1920/1080 */
+      width:auto;
+      height:100vh;
+      /* Показываем только центр — object-fit здесь не нужен,
+         картинка шире экрана и центрирована, края обрезаны overflow:hidden */
+      object-fit:unset;
+    }
+  }
 </style>
 </head>
 <body>
 <canvas id="gc"></canvas>
 <div id="loader">
-  <video id="loader-video" autoplay muted loop playsinline
-    src="https://raw.githubusercontent.com/CakeBoxDeveloper/3d/main/Lite2ruk.webm">
-  </video>
+  <img id="loader-img"
+    src="https://raw.githubusercontent.com/CakeBoxDeveloper/3d/main/Loop.webp"
+    alt="">
 </div>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
