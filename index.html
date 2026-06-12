@@ -42,7 +42,7 @@ scene.add(fillLight);
 /* ── Macintosh по центру ── */
 var gltfLoader = new THREE.GLTFLoader();
 gltfLoader.load(
-  'https://raw.githubusercontent.com/CakeBoxDeveloper/3d/main/macintosh.glb',
+  'https://raw.githubusercontent.com/CakeBoxDeveloper/3d/main/Table.glb',
   function(gltf){
     var model = gltf.scene;
     // Автомасштаб — вписываем в ~0.8 единицы высоты
@@ -50,12 +50,11 @@ gltfLoader.load(
     var size = box.getSize(new THREE.Vector3());
     var maxDim = Math.max(size.x, size.y, size.z);
     var scale  = 0.8 / maxDim;
-    model.scale.setScalar(scale);
-    // Ставим на пол (y=0) по центру, чуть впереди камеры
+    model.scale.setScalar(scale * 1.4);
     box.setFromObject(model);
     var center = box.getCenter(new THREE.Vector3());
-    model.position.set(-0.8, -box.min.y - 0.9, 0);
-    model.rotation.y = Math.PI / 2;
+    model.position.set(-0.8, -box.min.y - 0.9, -0.65);
+    model.rotation.y = 0;
     scene.add(model);
     // Анимации
     if(gltf.animations && gltf.animations.length){
