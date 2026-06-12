@@ -12,8 +12,35 @@
 </head>
 <body>
 <canvas id="gc"></canvas>
+
+<!-- Лоадер -->
+<div id="loader" style="
+  position:fixed; inset:0; z-index:999;
+  background:#000;
+  display:flex; align-items:center; justify-content:center;
+  transition: opacity 0.6s;
+">
+  <video id="loader-video"
+    autoplay muted loop playsinline
+    style="width:20vw; max-width:90vw;"
+    src="https://raw.githubusercontent.com/CakeBoxDeveloper/3d/main/Lite2ruk.webm">
+  </video>
+</div>
+
+<style>
+  @media (max-width: 768px) {
+    #loader-video { width: 70vw !important; }
+  }
+</style>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/SSAOPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/SSAOShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/math/SimplexNoise.js"></script>
 <script>
 (function(){
 
@@ -27,89 +54,78 @@ renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-/* ── Post-processing: vignette blur + chromatic aberration ── */
-// Рендерим сцену в текстуру
-var rtWidth  = W * Math.min(window.devicePixelRatio, 2);
-var rtHeight = H * Math.min(window.devicePixelRatio, 2);
-var renderTarget = new THREE.WebGLRenderTarget(rtWidth, rtHeight, {
-  minFilter: THREE.LinearFilter,
-  magFilter: THREE.LinearFilter,
-  format: THREE.RGBAFormat,
-});
+/* ── EffectComposer с SSAO ── */
+var composer;
+var ssaoPass;
 
-// Fullscreen quad
-var postScene  = new THREE.Scene();
-var postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-var postGeo    = new THREE.PlaneGeometry(2, 2);
-var postMat    = new THREE.ShaderMaterial({
-  uniforms: {
-    tDiffuse:   { value: renderTarget.texture },
-    uRes:       { value: new THREE.Vector2(rtWidth, rtHeight) },
-    uCA:        { value: 0.009 },  // сила chromatic aberration
-    uVigBlur:   { value: 1.2  },  // сила размытия по краям
-  },
-  vertexShader: `
-    varying vec2 vUv;
-    void main() { vUv = uv; gl_Position = vec4(position, 1.0); }
-  `,
-  fragmentShader: `
-    uniform sampler2D tDiffuse;
-    uniform vec2 uRes;
-    uniform float uCA;
-    uniform float uVigBlur;
-    varying vec2 vUv;
+function initComposer() {
+  composer = new THREE.EffectComposer(renderer);
 
-    // Быстрое размытие: усредняем несколько выборок в радиусе
-    vec4 blurSample(sampler2D tex, vec2 uv, float radius) {
-      vec4 col = vec4(0.0);
-      float total = 0.0;
-      float step = radius / 3.0;
-      for(float x = -3.0; x <= 3.0; x += 1.0) {
-        for(float y = -3.0; y <= 3.0; y += 1.0) {
-          vec2 offset = vec2(x, y) * step / uRes;
-          vec2 sampleUv = clamp(uv + offset, 0.001, 0.999);
-          col += texture2D(tex, sampleUv);
-          total += 1.0;
+  var renderPass = new THREE.RenderPass(scene, camera);
+  composer.addPass(renderPass);
+
+  // Наш кастомный blur+CA шейдер как финальный проход
+  var vigPass = new THREE.ShaderPass({
+    uniforms: {
+      tDiffuse: { value: null },
+      uRes:     { value: new THREE.Vector2(W, H) },
+      uCA:      { value: 0.009 },
+      uVigBlur: { value: 0.84  },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = vec4(position, 1.0); }
+    `,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      uniform vec2 uRes;
+      uniform float uCA;
+      uniform float uVigBlur;
+      varying vec2 vUv;
+
+      vec4 blurSample(sampler2D tex, vec2 uv, float radius) {
+        vec4 col = vec4(0.0);
+        float total = 0.0;
+        float s = radius / 3.0;
+        for(float x = -3.0; x <= 3.0; x += 1.0) {
+          for(float y = -3.0; y <= 3.0; y += 1.0) {
+            vec2 offset = vec2(x, y) * s / uRes;
+            vec2 suv = clamp(uv + offset, 0.001, 0.999);
+            col += texture2D(tex, suv);
+            total += 1.0;
+          }
         }
+        return col / total;
       }
-      return col / total;
-    }
 
-    void main() {
-      vec2 uv = vUv;
-      // Расстояние от центра (0=центр, 1=угол)
-      vec2 fromCenter = uv - 0.5;
-      float dist = length(fromCenter) * 1.414; // нормируем к 1 в углах
+      void main() {
+        vec2 uv = vUv;
+        vec2 fc = uv - 0.5;
+        float dist = length(fc) * 1.414;
+        float ca = uCA * dist * dist;
+        vec2 caDir = normalize(fc + 0.0001) * ca;
+        float r = texture2D(tDiffuse, uv + caDir).r;
+        float g = texture2D(tDiffuse, uv).g;
+        float b = texture2D(tDiffuse, uv - caDir).b;
+        vec4 sharp = vec4(r, g, b, 1.0);
+        float blurR = uVigBlur * dist * dist * dist * 12.0;
+        vec4 blurred = blurSample(tDiffuse, uv, blurR);
+        float blend = smoothstep(0.25, 0.8, dist);
+        vec4 col = mix(sharp, blurred, blend);
+        col.rgb *= 1.4;
+        gl_FragColor = col;
+      }
+    `,
+  });
+  vigPass.renderToScreen = true;
+  composer.addPass(vigPass);
+}
 
-      // Chromatic aberration — смещаем R и B каналы от центра
-      float ca = uCA * dist * dist;
-      vec2 caDir = normalize(fromCenter + 0.0001) * ca;
-      float r = texture2D(tDiffuse, uv + caDir).r;
-      float g = texture2D(tDiffuse, uv).g;
-      float b = texture2D(tDiffuse, uv - caDir).b;
-      vec4 sharp = vec4(r, g, b, 1.0);
-
-      // Vignette blur — размываем по краям
-      float blurRadius = uVigBlur * dist * dist * dist * 12.0;
-      vec4 blurred = blurSample(tDiffuse, uv, blurRadius);
-
-      // Смешиваем: центр = резкий, края = размытый (без затемнения)
-      float blend = smoothstep(0.15, 0.7, dist);
-      vec4 col = mix(sharp, blurred, blend);
-      // Без viignette — только blur
-      col.rgb *= 1.4; // компенсируем затемнение от blur
-
-      // Тёмная виньетка — убрана
-      // col.rgb *= vignette;
-
-      // Без tonemapping — чистый цвет
-      gl_FragColor = col;
-    }
-  `,
-  depthWrite: false,
-});
-var postMesh = new THREE.Mesh(postGeo, postMat);
-postScene.add(postMesh);
+// Старый render target больше не нужен
+var renderTarget = null;
+var postScene = null;
+var postCamera = null;
+var postMat = null;
 
 var scene  = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(75, W/H, 0.1, 1000);
@@ -141,7 +157,12 @@ gltfLoader.load(
     model.rotation.y = 0;
     scene.add(model);
 
-    // Включаем тени на всех мешах модели
+    // Скрываем лоадер
+    var loader = document.getElementById('loader');
+    if(loader) {
+      loader.style.opacity = '0';
+      setTimeout(function(){ loader.style.display = 'none'; }, 650);
+    }
     model.traverse(function(node) {
       if(node.isMesh) {
         node.castShadow    = true;
@@ -255,9 +276,8 @@ window.addEventListener('resize', function(){
   camera.aspect = W/H;
   camera.updateProjectionMatrix();
   renderer.setSize(W, H);
-  var dpr = Math.min(window.devicePixelRatio, 2);
-  renderTarget.setSize(W * dpr, H * dpr);
-  postMat.uniforms.uRes.value.set(W * dpr, H * dpr);
+  if(composer) composer.setSize(W, H);
+  if(ssaoPass) ssaoPass.setSize(W, H);
 });
 
 var lastTime = 0;
@@ -268,13 +288,15 @@ function animate(now){
   if(scene._mixer) scene._mixer.update(dt);
   qC.slerp(qT, SLERP);
   camera.quaternion.copy(qC);
-  // Рендер сцены в текстуру
-  renderer.setRenderTarget(renderTarget);
-  renderer.render(scene, camera);
-  // Пост-обработка на экран
-  renderer.setRenderTarget(null);
-  renderer.render(postScene, postCamera);
+  if(composer) {
+    composer.render();
+  } else {
+    renderer.render(scene, camera);
+  }
 }
+
+// Инициализируем composer после создания сцены и камеры
+initComposer();
 animate(0);
 
 })();
