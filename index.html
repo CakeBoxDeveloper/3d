@@ -214,30 +214,17 @@ var postMat = new THREE.ShaderMaterial({
 
 
     vec4 blurSample(sampler2D tex, vec2 uv, float radius) {
-      vec2 s = vec2(radius / 3.0) / uRes;
+      // Радиальный блюр — сэмплы вдоль вектора от края к центру
+      vec2 toCenter = (vec2(0.5) - uv) * radius;
       vec4 c = vec4(0.0);
-      c += texture2D(tex, clamp(uv + vec2(-3.0,-3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2(-2.0,-3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2(-1.0,-3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 0.0,-3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 1.0,-3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 2.0,-3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 3.0,-3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2(-3.0, 0.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2(-2.0, 0.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2(-1.0, 0.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 0.0, 0.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 1.0, 0.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 2.0, 0.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 3.0, 0.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2(-3.0, 3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2(-2.0, 3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2(-1.0, 3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 0.0, 3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 1.0, 3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 2.0, 3.0)*s, 0.001, 0.999));
-      c += texture2D(tex, clamp(uv + vec2( 3.0, 3.0)*s, 0.001, 0.999));
-      return c / 21.0;
+      c += texture2D(tex, clamp(uv,                   0.001, 0.999));
+      c += texture2D(tex, clamp(uv + toCenter * 0.17, 0.001, 0.999));
+      c += texture2D(tex, clamp(uv + toCenter * 0.33, 0.001, 0.999));
+      c += texture2D(tex, clamp(uv + toCenter * 0.50, 0.001, 0.999));
+      c += texture2D(tex, clamp(uv + toCenter * 0.67, 0.001, 0.999));
+      c += texture2D(tex, clamp(uv + toCenter * 0.83, 0.001, 0.999));
+      c += texture2D(tex, clamp(uv + toCenter * 1.00, 0.001, 0.999));
+      return c / 7.0;
     }
 
     void main() {
@@ -252,18 +239,11 @@ var postMat = new THREE.ShaderMaterial({
       float bCh  = texture2D(tDiffuse, vUv - caDir).b;
       vec4 sharp = vec4(rCh, gCh, bCh, 1.0);
 
-      // Виньетка-блюр: сильнее по бокам
-      float sideBlur = abs(fc.x) * 2.0;
-      float blurR    = uVigBlur * (dist*dist*dist*8.0 + sideBlur*sideBlur*sideBlur*11.0);
-      vec4 blurred   = blurSample(tDiffuse, vUv, blurR);
-      float blend    = smoothstep(0.25, 0.8, dist);
-      vec4 col       = mix(sharp, blurred, blend);
-
       // Motion blur — без if, weight=0 при нет движения
       vec2 mStep   = uMotion / 8.0;
       float motLen = length(uMotion);
       float motW   = smoothstep(0.0002, 0.012, motLen);
-      vec4 mCol    = col;
+      vec4 mCol    = sharp;
       mCol += texture2D(tDiffuse, clamp(vUv + mStep * 1.0, 0.001, 0.999));
       mCol += texture2D(tDiffuse, clamp(vUv + mStep * 2.0, 0.001, 0.999));
       mCol += texture2D(tDiffuse, clamp(vUv + mStep * 3.0, 0.001, 0.999));
@@ -271,7 +251,14 @@ var postMat = new THREE.ShaderMaterial({
       mCol += texture2D(tDiffuse, clamp(vUv + mStep * 5.0, 0.001, 0.999));
       mCol += texture2D(tDiffuse, clamp(vUv + mStep * 6.0, 0.001, 0.999));
       mCol += texture2D(tDiffuse, clamp(vUv + mStep * 7.0, 0.001, 0.999));
-      col = mix(col, mCol / 8.0, motW);
+      sharp = mix(sharp, mCol / 8.0, motW);
+
+      // Виньетка-блюр поверх — не перекрывается моушн блюром
+      float sideBlur = abs(fc.x) * 2.0;
+      float blurR    = uVigBlur * (dist*dist*dist*0.09 + sideBlur*sideBlur*sideBlur*0.11);
+      vec4 blurred   = blurSample(tDiffuse, vUv, blurR);
+      float blend    = smoothstep(0.6, 0.95, dist);
+      vec4 col       = mix(sharp, blurred, blend);
 
       // Яркость
       col.rgb *= uBright;
@@ -306,6 +293,39 @@ new THREE.TextureLoader().load(
     }, delay);
   }
 );
+
+/* ── Пыль в воздухе ── */
+var DUST_COUNT = 180;
+var dustGeo = new THREE.BufferGeometry();
+var dustPos = new Float32Array(DUST_COUNT * 3);
+var dustOff = new Float32Array(DUST_COUNT * 3); // фазы для анимации
+var dustSpd = new Float32Array(DUST_COUNT);      // индивидуальная скорость
+
+for(var i = 0; i < DUST_COUNT; i++){
+  // Случайно в сфере радиусом ~4 вокруг камеры
+  var r = 1.5 + Math.random() * 3.0;
+  var theta = Math.random() * Math.PI * 2;
+  var phi   = Math.acos(2 * Math.random() - 1);
+  dustPos[i*3  ] = r * Math.sin(phi) * Math.cos(theta);
+  dustPos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+  dustPos[i*3+2] = r * Math.cos(phi);
+  dustOff[i*3  ] = Math.random() * Math.PI * 2;
+  dustOff[i*3+1] = Math.random() * Math.PI * 2;
+  dustOff[i*3+2] = Math.random() * Math.PI * 2;
+  dustSpd[i] = 0.15 + Math.random() * 0.25;
+}
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+
+var dustMat = new THREE.PointsMaterial({
+  color: 0xffe8c0,
+  size: 0.012,
+  sizeAttenuation: true,
+  transparent: true,
+  opacity: 0.55,
+  depthWrite: false,
+});
+var dust = new THREE.Points(dustGeo, dustMat);
+scene.add(dust);
 
 /* ── Управление ── */
 var qT=new THREE.Quaternion(), qC=new THREE.Quaternion();
@@ -389,10 +409,24 @@ var lastTime=0;
 var qPrev = new THREE.Quaternion();
 var _qDelta = new THREE.Quaternion();
 var _axis = new THREE.Vector3();
+var _dustBase = dustPos.slice(); // копия начальных позиций
+
 function animate(now){
   requestAnimationFrame(animate);
   var dt=lastTime?Math.min((now-lastTime)/1000,0.1):0; lastTime=now;
+  var t = now * 0.001;
   if(scene._mixer) scene._mixer.update(dt);
+
+  // Анимация пыли — синусоидальный дрейф
+  var dp2 = dustGeo.attributes.position.array;
+  for(var i = 0; i < DUST_COUNT; i++){
+    var s = dustSpd[i];
+    dp2[i*3  ] = _dustBase[i*3  ] + Math.sin(t * s + dustOff[i*3  ]) * 0.18;
+    dp2[i*3+1] = _dustBase[i*3+1] + Math.sin(t * s + dustOff[i*3+1]) * 0.12
+                                   + Math.sin(t * s * 0.4) * 0.06; // лёгкий подъём
+    dp2[i*3+2] = _dustBase[i*3+2] + Math.sin(t * s + dustOff[i*3+2]) * 0.18;
+  }
+  dustGeo.attributes.position.needsUpdate = true;
 
   qPrev.copy(qC);
   qC.slerp(qT,SLERP);
