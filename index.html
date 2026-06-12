@@ -330,22 +330,35 @@ function startGyro(){
 
 // iPhone — показываем оверлей с запросом гироскопа
 var isIphone = /iPhone/i.test(navigator.userAgent||'');
+
+function showGyroOverlay(){
+  var ov = document.getElementById('gyro-overlay');
+  ov.style.transition = '';
+  ov.style.opacity = '1';
+  ov.style.display = 'flex';
+}
+function hideGyroOverlay(){
+  var ov = document.getElementById('gyro-overlay');
+  ov.style.transition = 'opacity 0.5s';
+  ov.style.opacity = '0';
+  setTimeout(function(){ ov.style.display = 'none'; }, 520);
+}
+
+// Глобальная функция для вызова из консоли
+window.showGyro = showGyroOverlay;
+
+document.getElementById('gyro-ok').addEventListener('click', function(){
+  startGyro();
+  hideGyroOverlay();
+});
+
 if(isIphone && typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
-  var gyroOverlay = document.getElementById('gyro-overlay');
-  gyroOverlay.style.display = 'flex';
-  document.getElementById('gyro-ok').addEventListener('click', function(){
-    startGyro();
-    gyroOverlay.style.transition = 'opacity 0.5s';
-    gyroOverlay.style.opacity = '0';
-    setTimeout(function(){ gyroOverlay.style.display = 'none'; }, 520);
-  });
+  showGyroOverlay();
 } else {
-  // Android / desktop — стартуем сразу или по первому касанию
   var permDone = false;
   document.addEventListener('touchstart', function(){ if(!permDone){ permDone=true; startGyro(); } }, {once:true});
   startGyro();
-}
-canvas.addEventListener('mousedown',function(e){dn=true;lx=e.clientX;ly=e.clientY;});
+}canvas.addEventListener('mousedown',function(e){dn=true;lx=e.clientX;ly=e.clientY;});
 window.addEventListener('mouseup',function(){dn=false;});
 window.addEventListener('mousemove',function(e){
   if(!dn||gyroOn) return;
@@ -367,6 +380,8 @@ window.addEventListener('resize',function(){
   renderer.setSize(W,H);
   rt.setSize(W*dpr, H*dpr);
   postMat.uniforms.uRes.value.set(W*dpr, H*dpr);
+  // Сброс при смене ориентации — избегаем артефакта моушн блюра
+  qC.copy(qT);
 });
 
 /* ── Render loop ── */
