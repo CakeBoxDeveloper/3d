@@ -407,7 +407,7 @@ function animate(now){
     _axis.set(_qDelta.x, _qDelta.y, _qDelta.z).normalize();
     var strength = Math.min(angle * 3.0, 0.03);
     // На мобильных с гироскопом усиливаем эффект
-    var mobileBoost = gyroOn ? 2.5 : 1.0;
+    var mobileBoost = gyroOn ? 1.6 : 1.0;
     motionX = -_axis.y * angle * strength * 30.0 * mobileBoost;
     motionY =  _axis.x * angle * strength * 30.0 * mobileBoost;
   }
