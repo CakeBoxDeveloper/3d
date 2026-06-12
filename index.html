@@ -46,7 +46,7 @@ var postMat    = new THREE.ShaderMaterial({
     tDiffuse:   { value: renderTarget.texture },
     uRes:       { value: new THREE.Vector2(rtWidth, rtHeight) },
     uCA:        { value: 0.009 },  // сила chromatic aberration
-    uVigBlur:   { value: 0.65  },  // сила размытия по краям
+    uVigBlur:   { value: 1.2  },  // сила размытия по краям
   },
   vertexShader: `
     varying vec2 vUv;
@@ -94,7 +94,7 @@ var postMat    = new THREE.ShaderMaterial({
       vec4 blurred = blurSample(tDiffuse, uv, blurRadius);
 
       // Смешиваем: центр = резкий, края = размытый (без затемнения)
-      float blend = smoothstep(0.3, 0.85, dist);
+      float blend = smoothstep(0.15, 0.7, dist);
       vec4 col = mix(sharp, blurred, blend);
       // Без viignette — только blur
       col.rgb *= 1.4; // компенсируем затемнение от blur
@@ -116,7 +116,11 @@ var camera = new THREE.PerspectiveCamera(75, W/H, 0.1, 1000);
 camera.position.set(0, 0, 0);
 
 /* ── Освещение ── */
-var ambient  = new THREE.AmbientLight(0xffffff, 1.8);
+var dirLight = new THREE.DirectionalLight(0xffe4a0, 0.4);
+dirLight.position.set(0, 1, 0);
+scene.add(dirLight);
+
+var ambient = new THREE.AmbientLight(0xffe4a0, 1.1);
 scene.add(ambient);
 
 /* ── Macintosh по центру ── */
